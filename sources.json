@@ -1,0 +1,12 @@
+{
+    "sources": [
+        {
+            "name": "golang.cafe",
+            "url": "https://golang.cafe/"
+        },
+        {
+            "name": "source2",
+            "url": "http://source2.com"
+        }
+    ]
+}
