@@ -7,14 +7,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/aquasecurity/table"
 	"github.com/gocolly/colly"
 	"github.com/gookit/slog"
 	"github.com/liamg/tml"
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
+
+var (
+	jobs []Job
+)
+
+type Job struct {
+	Title    string
+	Company  string
+	Location string
+	Date     string
+	Description string
+	Link     string
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -91,23 +108,115 @@ func findJobs(cmd *cobra.Command, args []string) {
 
 	slog.Info(sourcesMap)
 
-	_  = colly.NewCollector()
+	slog.Print(jobs)
 
+	c := colly.NewCollector()
+
+	spinner, _ := pterm.DefaultSpinner.Start("Fetching jobs...")
+	fetchGolangPrjects(c, sourcesMap["golangprojects"])
+	spinner.RemoveWhenDone = true
+	spinner.Success("Jobs fetched successfully!")
 
 	t := table.New(os.Stdout)
-	t.SetPadding(1)
 	t.SetAlignment(table.AlignCenter)
-	t.SetAutoMerge(true)
-	t.SetDividers(table.MarkdownDividers)
 
 
-	t.SetHeaders("Title", tml.Sprintf("<green>Company</green>"), "Location", "Date", "Link")
-	t.AddRow("Title", "Company", "Location", "Date", "Link")
-	t.AddRow("Title", "Company", "Location", "Date", "[Link](https://google.com)")
+	t.SetHeaders("Title", tml.Sprintf("<green>Company</green>"), "Location", "Date", "Description", "Link")
+	i := 0
+	for _, job := range jobs {
+		i++
+		if i == 3 {
+			break
+		}
+		t.AddRow(job.Title, job.Company, job.Location, job.Location,job.Date, job.Description, job.Link)
+	}
 
 	t.Render()
+
+	tableData := pterm.TableData{
+		{"Title", "Company", "Location", "Date", "Link"},
+	}
+	for _, job := range jobs {
+		tableData = append(tableData, []string{job.Title, job.Company, job.Date, job.Description, job.Link})
+	}
+
+	// Create a table with the defined data.
+
+	// The table has a header and is boxed.
+	// Finally, render the table to print it.
+	pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(tableData).Render()
+
+	fmt.Println(jobs[0])
 }
 
-func createLink(linkText, url string) string {
-	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, linkText)
+// https://www.golangprojects.com/golang-go-job-gta-Staff-Back-End-Golang-Engineer-New-York-NY-NYC-ONRAMP.html
+
+
+
+
+
+func fetchGolangPrjects(c *colly.Collector, source string) {
+	c.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+	/*
+	c.OnHTML("html", func(e *colly.HTMLElement) {
+		e.ForEach("div.bg-csdpromobg1", func(_ int, el *colly.HTMLElement) {
+			fmt.Println(el)
+
+		})
+	})
+	*/
+
+	c.OnHTML("a", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+		log.Println(link)
+		if len(link) > 0 && link[0] == '/' && len(link) > 14 && link[:14] == "/golang-go-job" {
+		//	log.Println(link)
+			iTags := e.DOM.NextAllFiltered("i")
+			iContents := []string{}
+		//	log.Println(iContents)
+			if iTags.Length() >= 2 {
+				iTags = iTags.Slice(0, 2)
+				iTags.Each(func(_ int, el *goquery.Selection) {
+					iContents = append(iContents, el.Text())
+				})
+				log.Println(iContents)
+			}
+			
+			if len(iContents) == 2 {
+				bTag := e.DOM.Find("b").First()
+				maintitle := bTag.Text()
+				titleParts := strings.LastIndex(maintitle, "-")
+				log.Println(titleParts)
+				title := maintitle[:titleParts]
+				company := maintitle[titleParts+1:]
+
+				date := e.DOM.NextFiltered("i").Text()
+				description := e.DOM.NextFiltered("i").Text()
+				//log.Println("locationnnnnn")
+				job := Job{
+					Title:    title,
+					Company: company,
+					Location: iContents[1] + " ",
+					Date:     date,
+					Description: description,
+					Link:    "https://www.golangprojects.com/" + link,
+				}
+				jobs = append(jobs, job)
+			}
+		}
+	})
+	c.OnRequest(func(r *colly.Request) {
+		//fmt.Println("Visiting", r.URL)
+	})
+
+	c.Visit(source)
+
+	c.OnResponse(func(r *colly.Response) {
+	//	fmt.Println("Visited", r.Request.URL)
+	//	fmt.Println(string(r.Body))
+	})
+
+	slog.Println(jobs)
+//	slog.Info(len(jobs))
 }
+
